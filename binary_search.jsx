@@ -1,395 +1,446 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 const BinarySearch = () => {
-  const [array, setArray] = useState([1,3,5,7,9,11,13,15]);
-  const [target, setTarget] = useState(11);
-  const [low, setLow] = useState(0);
-  const [high, setHigh] = useState(7);
-  const [mid, setMid] = useState(3);
-  const [found, setFound] = useState(null);
-  const [history, setHistory] = useState([]);
-  const [stepIndex, setStepIndex] = useState(0);
-  const [playing, setPlaying] = useState(false);
-  const [speed, setSpeed] = useState(1500);
-  const [error, setError] = useState('');
-  const [activeExplanation, setActiveExplanation] = useState('Welcome to Binary Search! Start by simulating the algorithm.');
+  const [data, setData] = useState({ array: [], target: '' });
+  const [steps, setSteps] = useState([]);
+  const [currentStep, setCurrentStep] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [speed, setSpeed] = useState(1000);
+  const [voiceEnabled, setVoiceEnabled] = useState(false);
+  const [voices, setVoices] = useState([]);
+  const [selectedVoice, setSelectedVoice] = useState('');
+  const [showingMoreInfo, setShowingMoreInfo] = useState(false);
+  const [errors, setErrors] = useState('');
+  const [pseudocode, setPseudocode] = useState([
+    { text: "low = 0, high = n-1", active: false },
+    { text: "while low <= high:", active: false },
+    { text: "  mid = Math.floor((low + high) / 2)", active: false },
+    { text: "  if arr[mid] == target: return mid", active: false },
+    { text: "  else if arr[mid] < target: low = mid + 1", active: false },
+    { text: "  else: high = mid - 1", active: false },
+    { text: "return -1  # Not found", active: false }
+  ]);
+  const speechSynthRef = useRef(null);
+  
+  useEffect(() => {
+    window.speechSynthesis?.getVoices().length ? setVoices(window.speechSynthesis.getVoices()) : 
+      window.speechSynthesis?.addEventListener('voiceschanged', () => 
+        setVoices(window.speechSynthesis.getVoices())
+      );
+    return () => window.speechSynthesis?.cancel();
+  }, []);
 
-  const maxSteps = 10;
-  const explanations = [
-    'Binary search requires a sorted array to work correctly.',
-    `Set initial pointers: low=${low}, high=${high}`,
-    `Calculate mid = Math.floor((${low} + ${high}) / 2) = ${Math.floor((low + high)/2)}`,
-    `Comparing target ${target} with element at mid (${array[mid]})...`,
-    'Target is greater than mid element, so we narrow to right half',
-    'Target is less than mid element, so we narrow to left half',
-    'Target found! Algorithm completes successfully.',
-    'Target not in array. Low pointer passed high pointer.'
-  ];
+  useEffect(() => {
+    if (!isPlaying || currentStep >= steps.length) {
+      setIsPlaying(false);
+      return;
+    }
+    
+    const timer = setTimeout(() => {
+      handleStepChange(currentStep + 1);
+    }, speed);
+    
+    return () => clearTimeout(timer);
+  }, [isPlaying, currentStep, steps, speed]);
 
-  const validateInput = () => {
-    if (array.length === 0) {
-      setError('Array cannot be empty');
-      return false;
-    }
-    if (isNaN(target)) {
-      setError('Target must be a number');
-      return false;
-    }
-    for (let i = 1; i < array.length; i++) {
-      if (array[i] < array[i-1]) {
-        setError('Array must be sorted in ascending order');
-        return false;
-      }
-    }
-    return true;
+  const speakText = (text) => {
+    if (!voiceEnabled || !window.speechSynthesis) return;
+    
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.voice = voices.find(v => v.name === selectedVoice) || voices[0];
+    window.speechSynthesis.speak(utterance);
+    speechSynthRef.current = utterance;
   };
 
-  const startSearch = () => {
-    if (!validateInput()) return;
-  
-    setError('');
-    const steps = [];
-    let l = 0;
-    let h = array.length - 1;
-    let m = Math.floor((l + h) / 2);
-    let explanationIndex = 0;
-    let foundIndex = null;
-  
-    steps.push({
-      low: l,
-      high: h,
-      mid: m,
-      action: 'initial',
-      explanation: explanations[explanationIndex++],
-      found: false
+  const validateInput = (array, target) => {
+    setErrors('');
+    if (!array.length) return "Array cannot be empty";
+    if (isNaN(target)) return "Target must be a number";
+    const arrNums = array.split(',').map(Number);
+    if (arrNums.some(isNaN)) return "Array must contain numbers only";
+    if (!arrNums.every((val, i, arr) => i === 0 || val >= arr[i - 1]))
+      return "Array must be sorted in ascending order";
+    return '';
+  };
+
+  const buildSteps = (arr, target) => {
+    const stepArray = [];
+    let low = 0, high = arr.length - 1;
+    stepArray.push({
+      arr: [...arr],
+      low,
+      high,
+      mid: null,
+      explanation: 'Starting search: low at start, high at end',
+      pseudoline: 0
     });
-  
-    while (l <= h) {
-      m = Math.floor((l + h) / 2);
-      setMid(m);
-      setLow(l);
-      setHigh(h);
-  
-      if (array[m] === parseInt(target)) {
-        steps.push({
-          low: l,
-          high: h,
-          mid: m,
-          action: 'found',
-          explanation: explanations[4 + (array[m] > target ? 1 : 0)],
-          found: true
+    
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      stepArray.push({
+        arr: [...arr],
+        low,
+        high,
+        mid,
+        explanation: `Calculating midpoint: mid = (${low} + ${high}) / 2 = ${mid}`,
+        pseudoline: 2
+      });
+      
+      if (arr[mid] === target) {
+        stepArray.push({
+          arr: [...arr],
+          low,
+          high,
+          mid,
+          explanation: `Found target at position ${mid}!`,
+          pseudoline: 3
         });
-        foundIndex = m;
-        setActiveExplanation('Element found!');
-        break;
-      } else if (array[m] < parseInt(target)) {
-        steps.push({
-          low: l,
-          high: h,
-          mid: m,
-          action: 'right',
-          explanation: explanations[3],
-          found: false
+        return stepArray;
+      } else if (arr[mid] < target) {
+        stepArray.push({
+          arr: [...arr],
+          low,
+          high,
+          mid,
+          explanation: `${arr[mid]} < ${target} - searching upper half`,
+          pseudoline: 4
         });
-        l = m + 1;
+        low = mid + 1;
       } else {
-        steps.push({
-          low: l,
-          high: h,
-          mid: m,
-          action: 'left',
-          explanation: explanations[3],
-          found: false
+        stepArray.push({
+          arr: [...arr],
+          low,
+          high,
+          mid,
+          explanation: `${arr[mid]} > ${target} - searching lower half`,
+          pseudoline: 5
         });
-        h = m - 1;
+        high = mid - 1;
       }
     }
     
-    if (foundIndex === null) {
-      steps.push({
-        low: l,
-        high: h,
-        mid: -1,
-        action: 'not-found',
-        explanation: explanations[5],
-        found: false
-      });
-      setActiveExplanation('Element not found in array.');
-    }
-  
-    setHistory(steps);
-    setStepIndex(0);
-    setFound(foundIndex);
+    stepArray.push({
+      arr: [...arr],
+      low,
+      high,
+      mid: null,
+      explanation: "Target not found",
+      pseudoline: 6
+    });
+    return stepArray;
   };
 
-  const nextStep = () => {
-    if (stepIndex < history.length - 1) {
-      setStepIndex(stepIndex + 1);
-      const step = history[stepIndex + 1];
-      setLow(step.low);
-      setHigh(step.high);
-      setMid(step.mid);
-      setFound(step.found);
-    } else {
-      setPlaying(false);
+  const handleSubmit = () => {
+    const errMsg = validateInput(data.array, data.target);
+    if (errMsg) {
+      setErrors(errMsg);
+      return;
     }
+    
+    const arr = data.array.split(',').map(Number);
+    const searchSteps = buildSteps(arr, Number(data.target));
+    setSteps(searchSteps);
+    setCurrentStep(0);
+    setIsPlaying(true);
   };
 
-  const prevStep = () => {
-    if (stepIndex > 0) {
-      setStepIndex(stepIndex - 1);
-      const step = history[stepIndex - 1];
-      setLow(step.low);
-      setHigh(step.high);
-      setMid(step.mid);
-      setFound(step.found);
-    }
+  const handleStepChange = (step) => {
+    if (step < 0 || step >= steps.length) return;
+    setCurrentStep(step);
+    setPseudocode(pc => 
+      pc.map((line, i) => ({ ...line, active: i === steps[step].pseudoline }))
+    );
+    speakText(steps[step].explanation);
+  };
+
+  const togglePlayPause = () => {
+    if (isPlaying) speakText("Animation paused");
+    setIsPlaying(!isPlaying);
   };
 
   const reset = () => {
-    setLow(0);
-    setHigh(array.length - 1);
-    setMid(Math.floor(array.length / 2));
-    setStepIndex(0);
-    setHistory([]);
-    setPlaying(false);
-    setFound(null);
-    setActiveExplanation(explanations[0]);
-  };
-
-  useEffect(() => {
-    if (history.length > 0) {
-      setActiveExplanation(history[stepIndex].explanation);
-    }
-  }, [stepIndex]);
-
-  useEffect(() => {
-    let interval;
-    if (playing && stepIndex < history.length - 1) {
-      interval = setInterval(() => {
-        nextStep();
-      }, 1500);
-    }
-    return () => clearInterval(interval);
-  }, [playing, speed, stepIndex, history]);
-
-  useEffect(() => {
-    reset();
-  }, [array]);
-
-  const handleArrayChange = (e) => {
-    try {
-      const arr = e.target.value.split(',').map(v => parseInt(v.trim()));
-      setArray(arr);
-      reset();
-      setError('');
-    } catch (err) {
-      setError('Invalid array format. Use comma-separated numbers.');
+    setIsPlaying(false);
+    setSteps([]);
+    setCurrentStep(0);
+    setErrors('');
+    setPseudocode(pc => pc.map(line => ({ ...line, active: false })));
+    if (voiceEnabled) {
+      speakText("Animation reset. Enter new values to restart");
     }
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-6 bg-white rounded-xl shadow-lg">
-      <h1 className="text-4xl font-bold text-indigo-600 mb-2">Binary Search Algorithm</h1>
-      <p className="text-gray-600 mb-6 max-w-2xl">
-        Efficiently find elements in sorted arrays using the divide-and-conquer approach. Binary search operates in O(log n) time complexity.
-      </p>
-
-      {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-600 rounded">{error}</div>}
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Explanation Section */}
-        <div className="space-y-6">
-          <div className="bg-indigo-50 rounded-lg p-5 border border-indigo-100 shadow-sm min-h-[200px]">
-            <h3 className="text-lg font-bold text-indigo-700 mb-2">Algorithm Explanation</h3>
-            <p className="text-gray-700 mb-4 font-medium transition-all duration-500 opacity-100">
-              {activeExplanation}
-            </p>
-            
-            <div className="bg-gray-800 text-gray-100 p-3 rounded text-sm font-mono transition-all opacity-90">
-              <div className="mb-1">{stepIndex >= 1 && `low = ${low}`}</div>
-              <div className="mb-1">{stepIndex >= 1 && `high = ${high}`}</div>
-              <div className="mb-1">{stepIndex >= 2 && `mid = (${low} + ${high}) // 2 = ${mid}`}</div>
-              <div className="text-green-400">
-                {stepIndex >= 3 && array[mid] === parseInt(target) && `array[${mid}] == ${target}`}
-                {stepIndex >= 3 && array[mid] < parseInt(target) && `array[${mid}] < ${target}`}
-                {stepIndex >= 3 && array[mid] > parseInt(target) && `array[${mid}] > ${target}`}
-              </div>
-            </div>
-          </div>
-
-          {/* Controls */}
-          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-            <div className="grid grid-cols-2 gap-4">
+    <div className="max-w-6xl mx-auto p-6 font-sans bg-gradient-to-br from-gray-50 to-blue-50 min-h-screen">
+      <div className="animate-fadeIn mb-8">
+        <h1 className="text-3xl md:text-4xl font-bold text-center text-blue-600 mb-2">
+          Binary Search Algorithm
+        </h1>
+        <p className="text-center text-gray-600 mb-6 max-w-3xl mx-auto">
+          Efficient algorithm to find an item in a sorted array by repeatedly dividing the search interval.
+          Time Complexity: <span className="font-mono font-semibold">O(log n)</span>
+        </p>
+        
+        <div className="grid md:grid-cols-2 gap-8 mb-8">
+          <div className="bg-white p-6 rounded-xl shadow-lg">
+            <div className="flex flex-col space-y-4">
               <div>
-                <label className="block text-gray-700 font-medium mb-2 text-sm">Array (sorted)</label>
+                <label htmlFor="array" className="block font-medium mb-1">
+                  Sorted Array (comma separated)
+                </label>
                 <input
+                  id="array"
                   type="text"
-                  value={array.join(', ')}
-                  onChange={handleArrayChange}
-                  className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                  aria-label="Enter sorted array (comma separated)"
+                  value={data.array}
+                  onChange={e => setData({...data, array: e.target.value})}
+                  placeholder="e.g., 2,5,8,12,16,23,38"
+                  className="w-full px-3 py-2 border rounded text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  aria-label="Enter sorted numbers separated by commas"
                 />
               </div>
+              
               <div>
-                <label className="block text-gray-700 font-medium mb-2 text-sm">Target Value</label>
+                <label htmlFor="target" className="block font-medium mb-1">
+                  Target Value
+                </label>
                 <input
+                  id="target"
                   type="number"
-                  value={target}
-                  onChange={(e) => setTarget(e.target.value)}
-                  className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                  aria-label="Target value to search"
+                  value={data.target}
+                  onChange={e => setData({...data, target: e.target.value})}
+                  className="w-full px-3 py-2 border rounded text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  aria-label="Enter target number"
                 />
               </div>
-            </div>
-
-            <div className="flex flex-wrap gap-3 mt-6">
-              <button
-                onClick={startSearch}
-                className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                aria-label="Run binary search"
-              >
-                Start Search
-              </button>
-              <button
-                onClick={prevStep}
-                disabled={stepIndex === 0 || history.length === 0}
-                className={`px-4 py-2 rounded transition focus:outline-none focus:ring-2 ${stepIndex === 0 ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-blue-500 text-white hover:bg-blue-600'}`}
-                aria-label="Previous step"
-              >
-                ← Back
-              </button>
-              <button
-                onClick={() => setPlaying(!playing)}
-                disabled={history.length === 0 || stepIndex === history.length - 1}
-                className={`px-4 py-2 rounded transition focus:outline-none focus:ring-2 ${history.length === 0 || stepIndex === history.length - 1 ? 'bg-gray-200 text-gray-400' : 'bg-green-600 text-white hover:bg-green-700'}`}
-                aria-label={playing ? "Pause animation" : "Play animation"}
-              >
-                {playing ? "⏸ Pause" : "▶ Play"}
-              </button>
-              <button
-                onClick={nextStep}
-                disabled={history.length === 0 || stepIndex === history.length - 1}
-                className={`px-4 py-2 rounded transition focus:outline-none focus:ring-2 ${history.length === 0 || stepIndex === history.length - 1 ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-blue-500 text-white hover:bg-blue-600'}`}
-                aria-label="Next step"
-              >
-                Next →
-              </button>
-              <button
-                onClick={reset}
-                className="px-4 py-2 bg-gray-200 rounded text-gray-800 hover:bg-gray-300 transition focus:outline-none focus:ring-2 focus:ring-gray-500"
-                aria-label="Reset visualization"
-              >
-                Reset
-              </button>
+              
+              {errors && (
+                <div className="text-red-500 font-medium p-2 bg-red-50 rounded mt-2 animate-pulse">
+                  Error: {errors}
+                </div>
+              )}
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={handleSubmit}
+                  className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors duration-300 flex-1"
+                  aria-label="Start binary search visualization"
+                >
+                  Start Search
+                </button>
+                <button
+                  onClick={() => setShowingMoreInfo(!showingMoreInfo)}
+                  className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-lg transition-colors duration-300"
+                  aria-label={`${showingMoreInfo ? 'Hide' : 'Show'} algorithm information`}
+                >
+                  {showingMoreInfo ? 'Less Info' : 'More Info'}
+                </button>
+              </div>
             </div>
           </div>
           
-          <div className="bg-orange-50 border-l-4 border-orange-500 p-4 rounded">
-            <h3 className="font-bold text-orange-700 mb-2">Tips & Best Practices</h3>
-            <ul className="text-orange-600 text-sm list-disc list-inside space-y-1">
-              <li>Always ensure arrays are sorted before applying binary search</li>
-              <li>Ensure your array has no duplicate values when implementing search</li>
-              <li>Use the formula mid = low + Math.floor((high - low)/2) to prevent integer overflow on large arrays</li>
+          <div className={`bg-blue-50 p-6 rounded-xl shadow-lg border border-blue-100 duration-500 transition-all ease-in-out ${showingMoreInfo ? 'opacity-100' : 'opacity-90'}`}>
+            <h2 className="font-bold text-xl text-blue-800 mb-2">Algorithm Insights</h2>
+            <ul className="space-y-2 text-gray-700">
+              <li className="flex items-start">
+                <span className="inline-block w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center mr-2">1</span>
+                <span><b>Divide & Conquer:</b> Halves search space each iteration</span>
+              </li>
+              <li className="flex items-start">
+                <span className="inline-block w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center mr-2">2</span>
+                <span><b>Prerequisite:</b> Input array <span className="font-mono">must be sorted</span></span>
+              </li>
+              <li className="flex items-start">
+                <span className="inline-block w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center mr-2">3</span>
+                <span><b>Key Steps:</b> Calculate midpoint; compare; adjust search boundaries</span>
+              </li>
             </ul>
+            <div className="mt-4 pt-4 border-t border-blue-200">
+              <h3 className="font-semibold text-lg text-blue-800 mb-2">Real World Uses</h3>
+              <ul className="list-disc pl-5 space-y-1">
+                <li>Searching in databases and file systems</li>
+                <li>Debugging - "divide and conquer" troubleshooting</li>
+                <li>Resource lookups in computer networks</li>
+              </ul>
+            </div>
           </div>
         </div>
-
-        {/* Visualization Section */}
-        <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
-          <h3 className="text-lg font-medium text-gray-800 mb-4">Visualization</h3>
-          <div className="flex justify-center">
-            <div className="rounded overflow-hidden border border-gray-300">
-              {array.map((value, index) => {
-                let bgColor = 'bg-white';
-                if ((index >= low && index <= high) ) {
-                  bgColor = 'bg-blue-100';
-                } 
-                if (index === low || index === high) {
-                  bgColor = 'bg-blue-300';
-                }
-                if (index === mid) {
-                  bgColor = 'bg-yellow-300';
-                }
-                if (found === index) {
-                  bgColor = 'bg-green-300';
-                }
-
-                return (
-                  <div 
-                    key={index} 
-                    className={`w-16 h-16 inline-flex flex-col items-center justify-center border-r border-gray-300 font-medium transition-all duration-300 ${bgColor}`}
-                    style={{ transitionDelay: index * 50 + 'ms' }}
-                  >
-                    <div className="text-lg font-bold">{value}</div>
-                    <div className="text-xs text-gray-500 mt-1">index {index}</div>
+      </div>
+      
+      <div className="bg-white p-6 rounded-xl shadow-lg mb-8 animate-fadeInUp">
+        <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
+          <h2 className="text-2xl font-semibold text-gray（800">Pseudocode</h2>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setPseudocode(pc => 
+                pc.map(line => ({ ...line, active: false }))
+              )}
+              className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded"
+              aria-label="Hide pseudocode highlights"
+            >
+              Clear Marks
+            </button>
+          </div>
+        </div>
+        
+        <pre className="bg-gray-800 text-green-300 p-4 rounded-lg overflow-x-auto">
+          {pseudocode.map((line, i) => (
+            <div
+              key={i}
+              className={`p-1 transition-colors duration-300 ${line.active ? 'bg-yellow-700 text-yellow-100' : ''}`}
+            >
+              {line.text}
+            </div>
+          ))}
+        </pre>
+      </div>
+      
+      {steps.length > 0 && (
+        <div className="animate-slideFade bg-white p-6 rounded-xl shadow-lg mb-8">
+          <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
+            <h2 className="text-2xl font-semibold text-gray-800">Visualization</h2>
+            
+            <div className="flex flex-wrap gap-3 items-center">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleStepChange(currentStep - 1)}
+                  disabled={currentStep === 0}
+                  className={`p-2 rounded-full ${currentStep === 0 ? 'bg-gray-200 text-gray-500' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'}`}
+                  aria-label="Go to previous step"
+                >
+                  &larr;
+                </button>
+                <button
+                  onClick={togglePlayPause}
+                  className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors duration-300 flex items-center gap-2"
+                  aria-label={`${isPlaying ? 'Pause' : 'Play'} animation`}
+                >
+                  {isPlaying ? 'Pause' : 'Play'}
+                </button>
+                <button
+                  onClick={() => handleStepChange(currentStep + 1)}
+                  disabled={currentStep >= steps.length - 1}
+                  className={`p-2 rounded-full ${currentStep >= steps.length - 1 ? 'bg-gray-200 text-gray-500' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'}`}
+                  aria-label="Go to next step"
+                >
+                  &rarr;
+                </button>
+              </div>
+              
+              <input
+                type="range"
+                min="500"
+                max="2500"
+                step="100"
+                value={2500 - speed}
+                onChange={(e) => setSpeed(2500 - parseInt(e.target.value))}
+                className="w-28 accent-blue-500"
+                aria-label="Adjust animation speed"
+              />
+              <span className="text-gray-700">Speed</span>
+              
+              <div className="flex items-center gap-2">
+                {voices.length > 0 && window.speechSynthesis ? (
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={selectedVoice}
+                      onChange={(e) => setSelectedVoice(e.target.value)}
+                      className="text-sm border rounded px-2 py-1 text-gray-700"
+                      aria-label="Select voice for narration"
+                    >
+                      {voices.map((voice, i) => (
+                        <option key={i} value={voice.name}>
+                          {voice.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => setVoiceEnabled(!voiceEnabled)}
+                      className={`px-3 py-1 rounded-full font-medium ${voiceEnabled ? 'bg-green-500 hover:bg-green-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'}`}
+                      aria-label={`Turn voice ${voiceEnabled ? 'off' : 'on'}`}
+                    >
+                      {voiceEnabled ? '🔊 Voice On' : '🔈 Voice Off'}
+                    </button>
                   </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="mt-8 flex justify-center">
-            <div className="py-4 px-6 bg-indigo-800 text-white rounded-lg text-center">
-              <div className="flex items-center justify-around mb-2">
-                <div className="flex items-center">
-                  <div className="w-4 h-4 bg-blue-300 mr-1"></div>
-                  <span>Low/High Pointers</span>
-                </div>
-                <div className="flex items-center ml-4">
-                  <div className="w-4 h-4 bg-yellow-300 mr-1"></div>
-                  <span>Mid Pointer</span>
-                </div>
-                <div className="flex items-center ml-4">
-                  <div className="w-4 h-4 bg-green-300 mr-1"></div>
-                  <span>Found Element</span>
-                </div>
-              </div>
-              <div className="h-10 flex items-center">
-                <div className="bg-white h-px flex-grow"></div>
-                <div className="px-3">Current Search Space</div>
-                <div className="bg-white h-px flex-grow"></div>
-              </div>
-            </div>
-          </div>
-          
-          <div className="mt-6">
-            <h3 className="text-md font-medium text-gray-700 mb-2">Algorithm Status</h3>
-            <div className="bg-gray-800 p-4 rounded text-white font-mono text-sm">
-              <div>Current step: {history.length > 0 ? stepIndex + 1 : 0}/{history.length}</div>
-              <div className="mt-2">
-                {found !== null ? (
-                  <span className="text-green-400">✓ Found at position {found}</span>
                 ) : (
-                  history.length > 0 && stepIndex === history.length - 1 ? (
-                    <span className="text-red-400">✗ Target not found</span>
-                  ) : (
-                    <span className="text-yellow-400">↻ Searching...</span>
-                  )
+                  <div className="text-yellow-600 text-sm px-2 py-1 bg-yellow-50 rounded border border-yellow-200">
+                    Voice narration unavailable in this browser
+                  </div>
                 )}
               </div>
             </div>
           </div>
+          
+          <div className="mb-6 bg-gray-800 text-white p-4 rounded-lg">
+            <div className="flex justify-center gap-1 mb-4">
+              {steps[currentStep]?.arr.map((num, idx) => (
+                <div
+                  key={idx}
+                  className={`border-2 w-14 h-14 flex items-center justify-center rounded relative transition-all duration-300
+                    ${
+                      idx === steps[currentStep].mid
+                        ? 'bg-yellow-500 border-yellow-700 text-white scale-110 font-bold'
+                        : idx >= (steps[currentStep].low || -1) && 
+                          idx <= (steps[currentStep].high === undefined ? -1 : steps[currentStep].high)
+                          ? 'bg-blue-500 border-blue-700 text-white'
+                          : 'bg-gray-700 border-gray-600 text-gray-300'
+                    }`}
+                >
+                  {num}
+                  {idx === steps[currentStep]?.low && (
+                    <div className="absolute -bottom-6 text-xs text-blue-600 font-bold">low</div>
+                  )}
+                  {idx === steps[currentStep]?.high && (
+                    <div className="absolute -bottom-6 text-xs text-red-600 font-bold">high</div>
+                  )}
+                  {idx === steps[currentStep]?.mid && (
+                    <div className="absolute -top-6 text-xs text-yellow-600 font-bold">mid</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+          
+          <div className="min-h-[40px] flex items-center justify-center mb-4">
+            <p className="text-center bg-blue-100 text-blue-800 p-3 rounded-lg border border-blue-200 animate-pulseTransition duration-500">
+              {steps[currentStep]?.explanation}
+            </p>
+          </div>
+          
+          <div className="flex justify-center">
+            <button
+              onClick={reset}
+              className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-6 py-2 rounded-lg"
+              aria-label="Reset visualization"
+            >
+              Reset Visualization
+            </button>
+          </div>
         </div>
-      </div>
-
-      <div className="mt-8 pt-6 border-t border-gray-200">
-        <h3 className="text-xl font-bold text-gray-800 mb-3">How Binary Search Works</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-gray-700">
-          <div className="bg-gray-50 p-4 rounded">
-            <span className="text-indigo-600 font-bold">Step 1</span>
-            <p className="mt-2">Start with the entire sorted array and set pointers (low, high)</p>
-          </div>
-          <div className="bg-gray-50 p-4 rounded">
-            <span className="text-indigo-600 font-bold">Step 2</span>
-            <p className="mt-2">Calculate mid point and check if it's the target element</p>
-          </div>
-          <div className="bg-gray-50 p-4 rounded">
-            <span className="text-indigo-600 font-bold">Step 3</span>
-            <p className="mt-2">If target is smaller, search left; if larger, search right</p>
-          </div>
-        </div>
-      </div>
+      )}
+      
+      <footer className="text-center text-gray-600 pb-8 pt-4 animate-fadeIn">
+        <h2 className="font-bold text-lg text-gray-700 mb-2">Key Considerations</h2>
+        <ul className="flex flex-wrap justify-center gap-4 max-w-4xl mx-auto">
+          <li className="bg-white border p-3 rounded-lg shadow-sm flex-1 min-w-[250px]">
+            <h3 className="font-bold mb-1 text-red-600">Pitfalls</h3>
+            <p>
+              Forgetting to sort input data first will produce incorrect results
+            </p>
+          </li>
+          <li className="bg-white border p-3 rounded-lg shadow-sm flex-1 min-w-[250px]">
+            <h3 className="font-bold mb-1 text-green-600">Optimizations</h3>
+            <p>
+              Minimal memory footprint - only tracks 3 pointers during execution
+            </p>
+          </li>
+          <li className="bg-white border p-3 rounded-lg shadow-sm flex-1 min-w-[250px]">
+            <h3 className="font-bold mb-1 text-purple-600">Application Tips</h3>
+            <p>
+              Always prefer over linear search for large sorted datasets
+            </p>
+          </li>
+        </ul>
+      </footer>
     </div>
   );
 };

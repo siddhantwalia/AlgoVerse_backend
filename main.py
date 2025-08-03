@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 import re
+import time
 from pydantic import BaseModel
 import langchain
 from model import llm
@@ -16,12 +17,13 @@ def home():
 
 @app.post(("/make"))
 def make_algo(req:AlgoMaker):
+    start= time.time()
     query = req.Algo_name
     chain = Prompt | llm
     code = chain.invoke(query).content
     file = query+".jsx"
     code = clean_output(code)   
-    
+    print(time.time()-start)
     return write_react_app_to_file(code,file)
 
 def write_react_app_to_file(code: str, filename: str = 'App.tsx') -> None:

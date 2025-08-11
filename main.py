@@ -10,17 +10,18 @@ app = FastAPI()
 class AlgoMaker(BaseModel):
     Algo_name :str
 
-
 @app.get("/")
 def home():
     return "hehe"
 
-@app.post(("/make"))
+@app.post("/make")
 def make_algo(req:AlgoMaker):
     start= time.time()
     query = req.Algo_name
+    
+    input = {"algorithm":query}
     chain = Prompt | llm
-    code = chain.invoke(query).content
+    code = chain.invoke(input).content
     file = query+".jsx"
     code = clean_output(code)   
     print(time.time()-start)
@@ -29,7 +30,7 @@ def make_algo(req:AlgoMaker):
 def write_react_app_to_file(code: str, filename: str = 'App.tsx') -> None:
     with open(filename, 'w', encoding='utf-8') as file:
         file.write(code)
-    print(f"File '{filename}' has been created successfully.")
+    # print(f"File '{filename}' has been created successfully.{code}")n    
 
 
 def clean_output(answer):
